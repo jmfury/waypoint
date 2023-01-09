@@ -8,9 +8,11 @@ import (
 
 	assetfs "github.com/elazarl/go-bindata-assetfs"
 	"github.com/gorilla/mux"
+	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/hashicorp/go-hclog"
 	"github.com/improbable-eng/grpc-web/go/grpcweb"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/hashicorp/waypoint/internal/server/httpapi"
 	"github.com/hashicorp/waypoint/pkg/server/gen"
@@ -48,8 +50,17 @@ func newHttpServer(grpcServer *grpc.Server, ln net.Listener, opts *options) *htt
 	// gRPC server. This is used by the exec handler.
 	grpcAddr := opts.GRPCListener.Addr().String()
 
+	// Create grpc-gateway muxer
+	grpcMux := runtime.NewServeMux()
+	grpcOpts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
+	err := gen.RegisterWaypointHandlerFromEndpoint(opts.Context, grpcMux, "localhost:9701", grpcOpts)
+	if err != nil {
+		log.Error("Unable to register waypoint grpc gateway service")
+	}
+
 	// Create our full router
 	r := mux.NewRouter()
+	r.Handle("/v1/api", grpcMux)
 	r.HandleFunc("/v1/exec", httpapi.HandleExec(grpcAddr, true))
 	r.HandleFunc("/v1/trigger/{id:[a-zA-Z0-9]+}", httpapi.HandleTrigger(grpcAddr, true))
 	r.PathPrefix("/grpc").Handler(grpcWrapped)
